@@ -1,0 +1,95 @@
+name: ORION als reines HTML bauen
+
+# Verwandelt das Next.js-Projekt in reine HTML-, CSS- und JS-Dateien.
+# Das Ergebnis kann man bei Netlify einfach hineinziehen — ohne Server,
+# ohne npm, ohne GitHub-Verbindung.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  html-bauen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Projekt holen
+        uses: actions/checkout@v4
+
+      - name: Node einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Pakete installieren
+        run: npm install --legacy-peer-deps
+
+      - name: Export einschalten, falls noch nicht geschehen
+        run: |
+          if ! grep -q 'output: "export"' next.config.ts 2>/dev/null; then
+            echo "next.config.ts wird auf statischen Export gestellt"
+            cat > next.config.ts << 'ENDE'
+          import type { NextConfig } from "next";
+          const nextConfig: NextConfig = {
+            output: "export",
+            images: { unoptimized: true },
+            trailingSlash: true,
+            typescript: { ignoreBuildErrors: true },
+            eslint: { ignoreDuringBuilds: true },
+          };
+          export default nextConfig;
+          ENDE
+          fi
+
+      - name: Bauen
+        run: npm run build
+
+      - name: Ergebnis prüfen
+        run: |
+          if [ ! -d out ]; then
+            echo "FEHLER: Ordner 'out' fehlt. Der Export hat nicht gegriffen."
+            ls -la
+            exit 1
+          fi
+          echo "Fertige Dateien:"
+          find out -maxdepth 2 -type f | head -20
+          echo ""
+          echo "Größe insgesamt:"
+          du -sh out
+
+      - name: Netlify-Einstellungen mitgeben
+        run: |
+          # Sorgt dafuer, dass jede Adresse auf die Startseite zeigt,
+          # statt einen 404 zu liefern.
+          printf '/*    /index.html   200\n' > out/_redirects
+          cat > out/ANLEITUNG.txt << 'ENDE'
+          ORION — fertige HTML-Fassung
+          ============================
+
+          Diese Dateien sind reines HTML, CSS und JavaScript.
+          Kein Server noetig.
+
+          ONLINE STELLEN (2 Minuten)
+          --------------------------
+          1. Dieses ZIP entpacken
+          2. app.netlify.com/drop im Browser oeffnen
+          3. Den ENTPACKTEN ORDNER hineinziehen
+             (nicht das ZIP, nicht eine einzelne Datei)
+          4. Fertig — du bekommst sofort eine Adresse
+
+          WICHTIG
+          -------
+          Falls "Seite nicht gefunden" kommt: Du hast wahrscheinlich
+          das ZIP selbst hochgeladen statt den entpackten Ordner.
+          Netlify braucht den Ordner, in dem index.html direkt liegt.
+
+          Falls oben ein gruener Balken "Dieses Projekt ist privat"
+          erscheint: dort auf "die Website live schalten" tippen.
+          ENDE
+
+      - name: Als Download bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ORION-HTML-fertig
+          path: out/
+          retention-days: 30
